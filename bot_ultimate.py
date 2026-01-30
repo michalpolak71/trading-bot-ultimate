@@ -674,7 +674,7 @@ class UltimateBot:
         try:
             req = StockBarsRequest(
                 symbol_or_symbols=sym,
-                timeframe=TimeFrame.Minute,
+                timeframe=TimeFrame(5, TimeFrameUnit.Minute),
                 start=utc_now() - timedelta(minutes=self.cfg.lookback_bars),
                 end=utc_now(),
                 feed=self.cfg.data_feed,
