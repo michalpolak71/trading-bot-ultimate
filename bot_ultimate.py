@@ -672,6 +672,7 @@ class UltimateBot:
 
     def fetch_bars(self, sym: str) -> pd.DataFrame:
         try:
+            logger.info(f">>> FETCHING BARS for {sym} with 5Min timeframe")
             req = StockBarsRequest(
                 symbol_or_symbols=sym,
                 timeframe=TimeFrame(5, TimeFrameUnit.Minute),
