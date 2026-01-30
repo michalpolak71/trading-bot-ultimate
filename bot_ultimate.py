@@ -853,7 +853,7 @@ class UltimateBot:
         price = float(df["close"].iloc[-1])
         vwap_val = float(rolling_vwap(df, self.cfg.vwap_window).iloc[-1])
         rsi_val = float(rsi(df["close"].astype(float), self.cfg.rsi_len).iloc[-1])
-        
+        logger.info(f"{sym} | Price: ${price:.2f} | VWAP: ${vwap_val:.2f} | RSI: {rsi_val:.1f}")
         # Position info
         pos = positions.get(sym)
         pos_qty = float(pos.qty) if pos else 0.0
