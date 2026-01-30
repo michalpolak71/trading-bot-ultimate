@@ -676,20 +676,32 @@ class UltimateBot:
             req = StockBarsRequest(
                 symbol_or_symbols=sym,
                 timeframe=TimeFrame(5, TimeFrameUnit.Minute),
-                start=utc_now() - timedelta(minutes=self.cfg.lookback_bars),
+                start=utc_now() - timedelta(minutes=self.cfg.lookback_bars * 5),
                 end=utc_now(),
                 feed=self.cfg.data_feed,
             )
+            logger.info(f">>> Request: start={req.start}, end={req.end}, feed={req.feed}")
+            
             df = self.data.get_stock_bars(req).df
             
+            logger.info(f">>> Response: df is None={df is None}, len={len(df) if df is not None else 0}")
+            
             if df is None or len(df) == 0:
+                logger.error(f">>> NO BARS RETURNED for {sym}!")
                 return pd.DataFrame()
             
             if isinstance(df.index, pd.MultiIndex):
                 df = df.reset_index()
                 df = df[df["symbol"] == sym].set_index("timestamp")
             
+            logger.info(f">>> SUCCESS: Retrieved {len(df)} bars for {sym}")
             return df.sort_index()
+        
+        except Exception as e:
+            logger.error(f">>> FETCH_BARS ERROR for {sym}: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f">>> TRACEBACK: {traceback.format_exc()}")
+            return pd.DataFrame()
         
         except Exception as e:
             logger.error(f"Failed to fetch bars for {sym}: {e}")
