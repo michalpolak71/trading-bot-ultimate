@@ -142,7 +142,7 @@ def iso(dt: datetime) -> str:
 
 def bps_to_mult(bps: float) -> float:
     """Convert basis points to multiplier - FIXED"""
-    return 1.0 + (bps / 100.0)
+    return 1.0 + (bps / 10000.0)
 
 
 def rsi(close: pd.Series, n: int = 14) -> pd.Series:
