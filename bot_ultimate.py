@@ -163,16 +163,20 @@ def rolling_vwap(df: pd.DataFrame, window: int) -> pd.Series:
 
 
 def is_market_hours() -> bool:
-    """Check if US market is open"""
-    now = utc_now()
-    hour_utc = now.hour
-    weekday = now.weekday()
+    """Check if US market is open - FIXED version from working bot"""
+    import pytz
+    tz_ny = pytz.timezone('America/New_York')
+    now_ny = datetime.now(tz_ny)
     
-    if weekday >= 5:  # Weekend
+    # Weekend check
+    if now_ny.weekday() >= 5:
         return False
     
-    # Market hours: 9:30 AM - 4:00 PM EST = 14:30 - 21:00 UTC (approximation)
-    return 14 <= hour_utc <= 21
+    # Market hours: 9:30 AM - 4:00 PM EST
+    start_time = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
+    end_time = now_ny.replace(hour=16, minute=0, second=0, microsecond=0)
+    
+    return start_time <= now_ny <= end_time
 
 
 # ============================================================================
