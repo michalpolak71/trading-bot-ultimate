@@ -854,6 +854,7 @@ class UltimateBot:
             )
         
         # Technical indicators
+        logger.info(f">>> Processing {sym}: df has {len(df)} bars, vwap_window={self.cfg.vwap_window}, rsi_len={self.cfg.rsi_len}")
         price = float(df["close"].iloc[-1])
         vwap_val = float(rolling_vwap(df, self.cfg.vwap_window).iloc[-1])
         rsi_val = float(rsi(df["close"].astype(float), self.cfg.rsi_len).iloc[-1])
