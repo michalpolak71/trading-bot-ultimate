@@ -582,7 +582,7 @@ class TradingDB:
              float(d.get("market_value")) if d.get("market_value") is not None else None,
              float(d.get("avg_entry_price")) if d.get("avg_entry_price") is not None else None,
              float(d.get("unrealized_pl")) if d.get("unrealized_pl") is not None else None,
-             json.dumps(d, ensure_ascii=False, default=str)
+             json.dumps(d, ensure_ascii=False, default=str))
         )
         self.conn.commit()
     
