@@ -561,7 +561,7 @@ class TradingDB:
         self.conn.commit()
 
     def upsert_order(self, order_obj):
-        d = order_obj.model_dump() if hasattr(order_obj, "model_dump") else dict(order_obj)
+        d = order_obj.model_dump(mode='json') if hasattr(order_obj, "model_dump") else dict(order_obj)
         self.conn.execute(
             """INSERT OR REPLACE INTO orders
                (id, ts_utc, symbol, side, qty, status, raw_json) 
