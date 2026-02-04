@@ -1125,14 +1125,18 @@ Est. Fees:    ${fees_estimated:.2f}
         
         while True:
             try:
-                if not is_market_hours():
-                    current_date = utc_now().strftime("%Y-%m-%d")
+                if not can_trade_now():
+                    if not is_market_hours():
+                        current_date = utc_now().strftime("%Y-%m-%d")
+                        
+                        if current_date != last_eod_date:
+                            self.generate_eod_report()
+                            last_eod_date = current_date
+                        
+                        logger.info("Market closed, sleeping...")
+                    else:
+                        logger.info("Pre-market hours (9:30-11:30 AM) - waiting to trade...")
                     
-                    if current_date != last_eod_date:
-                        self.generate_eod_report()
-                        last_eod_date = current_date
-                    
-                    logger.info("Market closed, sleeping...")
                     time.sleep(300)
                     continue
                 
