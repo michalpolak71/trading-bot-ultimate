@@ -1007,24 +1007,25 @@ class UltimateBot:
                 if order:
                     self.entry_price.pop(sym, None)
         
-        # Log signal
-        max_pos_value = equity * self.cfg.max_pos_pct
-        self.db.insert_signal(
-            ts=utc_now(), symbol=sym, action=action, reason=reason,
-            price=price, vwap=vwap_val, rsi=rsi_val,
-            equity=equity, cash=cash,
-            position_qty=pos_qty, position_value=pos_value, max_pos_value=max_pos_value,
-            entry_price=entry, tp_price=tp_price, sl_price=sl_price,
-            sentiment=sentiment_score, sentiment_confidence=sentiment_confidence, 
-            news_count=news_count,
-            raw={
-                "technical_entry": technical_entry,
-                "sentiment_ok": sentiment_ok,
-                "exit_trigger": exit_trigger,
-                "tp_hit": tp_hit,
-                "sl_hit": sl_hit,
-            },
-        )
+        # Log signal ONLY if action happened (not just HOLD)
+        if action != "HOLD":
+            max_pos_value = equity * self.cfg.max_pos_pct
+            self.db.insert_signal(
+                ts=utc_now(), symbol=sym, action=action, reason=reason,
+                price=price, vwap=vwap_val, rsi=rsi_val,
+                equity=equity, cash=cash,
+                position_qty=pos_qty, position_value=pos_value, max_pos_value=max_pos_value,
+                entry_price=entry, tp_price=tp_price, sl_price=sl_price,
+                sentiment=sentiment_score, sentiment_confidence=sentiment_confidence, 
+                news_count=news_count,
+                raw={
+                    "technical_entry": technical_entry,
+                    "sentiment_ok": sentiment_ok,
+                    "exit_trigger": exit_trigger,
+                    "tp_hit": tp_hit,
+                    "sl_hit": sl_hit,
+                },
+            )
 
     def generate_eod_report(self) -> dict:
         today = utc_now().strftime("%Y-%m-%d")
