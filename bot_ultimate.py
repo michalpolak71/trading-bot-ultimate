@@ -933,12 +933,16 @@ class UltimateBot:
         tp_hit = (tp_price is not None and price >= tp_price)
         sl_hit = (sl_price is not None and price <= sl_price)
         
-        # Check cooldown and trade limits
-        cooled = (time.time() - self.last_trade[sym]) >= self.cfg.cooldown_sec
-        can_trade = self.can_trade_today(sym)
+        # PDT Protection: Don't sell same-day positions
+        position_age_hours = 0
+        if entry is not None:
+            entry_dt = datetime.fromisoformat(entry.replace('Z', '+00:00')) if isinstance(entry, str) else entry
+            position_age_hours = (utc_now() - entry_dt).total_seconds() / 3600
         
-        action = "HOLD"
-        reason = "none"
+        # Block exit if position < 24h old (avoid PDT)
+        if position_age_hours > 0 and position_age_hours < 24:
+            tp_hit = False
+            sl_hit = False
         
         # === EXECUTE TRADES ===
         
