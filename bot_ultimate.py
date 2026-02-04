@@ -864,15 +864,20 @@ class UltimateBot:
         pos_qty = float(pos.qty) if pos else 0.0
         pos_value = float(pos.market_value) if (pos and hasattr(pos, "market_value")) else 0.0
         
-        # Entry price
+        # Entry price - ALWAYS use Alpaca position data (survives restarts!)
         entry = None
         if pos and hasattr(pos, "avg_entry_price") and pos.avg_entry_price:
             try:
                 entry = float(pos.avg_entry_price)
-            except:
-                pass
-        if entry is None:
+                # Update local cache
+                self.entry_price[sym] = entry
+            except Exception as e:
+                logger.warning(f"{sym}: Failed to get entry from position: {e}")
+        
+        # Fallback to cache only if no position
+        if entry is None and pos_qty == 0:
             entry = self.entry_price.get(sym)
+        
         
         # TP/SL levels
         tp_price = entry * bps_to_mult(self.cfg.tp_bps) if entry else None
