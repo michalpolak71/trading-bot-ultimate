@@ -179,6 +179,25 @@ def is_market_hours() -> bool:
     return start_time <= now_ny <= end_time
 
 
+def can_trade_now() -> bool:
+    """
+    Check if we can trade NOW (avoid PDT by skipping first 2 hours)
+    This gives us time to exit same-day without PDT violation
+    """
+    if not is_market_hours():
+        return False
+    
+    import pytz
+    tz_ny = pytz.timezone('America/New_York')
+    now_ny = datetime.now(tz_ny)
+    
+    # Allow trading only after 11:30 AM EST (2h after open)
+    # This leaves 4.5h to exit same day (11:30 AM - 4:00 PM)
+    trade_start = now_ny.replace(hour=11, minute=30, second=0, microsecond=0)
+    
+    return now_ny >= trade_start
+
+
 # ============================================================================
 # SENTIMENT ANALYZER (100% FREE)
 # ============================================================================
