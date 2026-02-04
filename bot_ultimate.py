@@ -972,6 +972,8 @@ class UltimateBot:
                 logger.info(f"{sym} | Max trades/day reached ({self.cfg.max_trades_per_day})")
         
         else:
+            logger.info(f"{sym} | Position check: pos_qty={pos_qty:.4f}, entry=${entry:.2f if entry else 0}, tp=${tp_price:.2f if tp_price else 0}, sl=${sl_price:.2f if sl_price else 0}")
+            logger.info(f"{sym} | Exit conditions: exit_trigger={exit_trigger}, tp_hit={tp_hit}, sl_hit={sl_hit}, cooled={cooled}, price=${price:.2f}")
             # Have position - look for exit
             if (exit_trigger or tp_hit or sl_hit) and cooled:
                 action = "SELL"
