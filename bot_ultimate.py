@@ -933,19 +933,6 @@ class UltimateBot:
         tp_hit = (tp_price is not None and price >= tp_price)
         sl_hit = (sl_price is not None and price <= sl_price)
         
-        # PDT Protection: Don't sell same-day positions
-position_age_hours = 999  # Default: old enough to sell
-if pos_qty > 0 and sym in self.entry_price:
-    # Check when position was opened (from last_trade timestamp)
-    last_trade_time = self.last_trade.get(sym, 0)
-    if last_trade_time > 0:
-        position_age_hours = (time.time() - last_trade_time) / 3600
-        
-        # Block exit if position < 24h old (avoid PDT)
-        if position_age_hours > 0 and position_age_hours < 24:
-            tp_hit = False
-            sl_hit = False
-        
         # === EXECUTE TRADES ===
         
         if pos_qty == 0:
