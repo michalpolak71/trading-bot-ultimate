@@ -953,6 +953,8 @@ class UltimateBot:
                 qty = self.max_qty(equity, price, cash)
                 
                 if qty > 0:
+                    # Lock symbol immediately (prevent double-buy)
+                    self.last_trade[sym] = time.time()
                     action = "BUY"
                     reason = "technical_entry"
                     if self.cfg.sentiment_enabled and sentiment_score > 0.3:
