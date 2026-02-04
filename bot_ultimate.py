@@ -932,6 +932,13 @@ class UltimateBot:
         
         tp_hit = (tp_price is not None and price >= tp_price)
         sl_hit = (sl_price is not None and price <= sl_price)
+
+        # Check cooldown and trade limits
+        cooled = (time.time() - self.last_trade[sym]) >= self.cfg.cooldown_sec
+        can_trade = self.can_trade_today(sym)
+        
+        action = "HOLD"
+        reason = "none"
         
         # === EXECUTE TRADES ===
         
