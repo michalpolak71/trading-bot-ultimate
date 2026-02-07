@@ -1,6 +1,34 @@
-# bot_ultimate.py — ULTIMATE TRADING BOT v2.0
+# bot_ultimate.py — ULTIMATE TRADING BOT v3.0
 # Technical Analysis + Sentiment Analysis + News Monitoring
 # 100% FREE - No paid subscriptions required
+#
+# ============================================================================
+# WEEKEND 1+2 UPDATES (Feb 8-9, 2026):
+# ============================================================================
+# MONITORING (logs only - no trading changes):
+#   ✅ Crypto Risk Monitor (BTC/ETH via CoinGecko API)
+#   ✅ Consecutive Losses Tracking
+#   ✅ Daily Drawdown Calculation  
+#   ✅ ATR (Average True Range) Volatility
+#   ✅ Market Volatility Classification
+#
+# SAFE GUARDS (auto-pause protection):
+#   ✅ Daily Loss Limit (-5% auto-pause until midnight)
+#   ✅ Max Drawdown Circuit Breaker (-10% emergency stop)
+#   ✅ Crypto Crash Protection (BTC < -10% = no buys)
+#   ✅ Consecutive Loss Cooldown (3 losses = 2-day pause)
+#
+# REPORTING:
+#   ✅ Google Sheets Dashboard (auto-sync every trade)
+#   ✅ Enhanced logging with risk metrics
+#
+# New Railway Variables:
+#   - MAX_DAILY_LOSS_PCT (default: 5.0)
+#   - MAX_DRAWDOWN_PCT (default: 10.0)
+#   - CRYPTO_CRASH_THRESHOLD (default: -10.0)
+#   - CONSECUTIVE_LOSS_COOLDOWN_DAYS (default: 2)
+#   - GOOGLE_SHEETS_CREDENTIALS (optional: service account JSON)
+# ============================================================================
 
 import os
 import sys
@@ -20,6 +48,15 @@ import pandas as pd
 import feedparser
 import requests
 from urllib.parse import quote
+
+# NEW: Google Sheets integration (Weekend 1+2)
+try:
+    import gspread
+    from oauth2client.service_account import ServiceAccountCredentials
+    GSHEETS_AVAILABLE = True
+except ImportError:
+    GSHEETS_AVAILABLE = False
+    logger.warning("gspread not installed - Google Sheets disabled")
 
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
@@ -196,6 +233,101 @@ def can_trade_now() -> bool:
     trade_start = now_ny.replace(hour=11, minute=30, second=0, microsecond=0)
     
     return now_ny >= trade_start
+
+
+# ============================================================================
+# NEW: MONITORING & RISK MANAGEMENT FUNCTIONS (Weekend 1+2)
+# ============================================================================
+
+def get_crypto_sentiment() -> dict:
+    """
+    FREE Crypto Risk Monitor using CoinGecko API
+    Returns BTC/ETH 24h changes and risk classification
+    """
+    try:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        
+        btc_change = data['bitcoin']['usd_24h_change']
+        eth_change = data['ethereum']['usd_24h_change']
+        
+        # Risk classification (from Warsaw bot)
+        if btc_change < -10.0:
+            risk_level = "CRASH"
+        elif btc_change < -5.0:
+            risk_level = "HIGH"
+        elif btc_change < -2.0:
+            risk_level = "MEDIUM"
+        elif btc_change > 3.0:
+            risk_level = "BULLISH"
+        else:
+            risk_level = "NORMAL"
+        
+        return {
+            'btc_change_24h': btc_change,
+            'eth_change_24h': eth_change,
+            'risk_level': risk_level,
+            'should_pause': btc_change < -10.0  # Crash protection
+        }
+    
+    except Exception as e:
+        logger.warning(f"Crypto API failed: {e}")
+        return {
+            'btc_change_24h': 0.0,
+            'eth_change_24h': 0.0,
+            'risk_level': 'UNKNOWN',
+            'should_pause': False
+        }
+
+
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> float:
+    """
+    Calculate Average True Range (volatility measure)
+    Used for adaptive stop-loss in future phases
+    """
+    if len(df) < period + 1:
+        return 0.0
+    
+    try:
+        high_low = df['high'] - df['low']
+        high_close = abs(df['high'] - df['close'].shift())
+        low_close = abs(df['low'] - df['close'].shift())
+        
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        atr_value = tr.rolling(period).mean().iloc[-1]
+        
+        return float(atr_value) if not pd.isna(atr_value) else 0.0
+    
+    except Exception as e:
+        logger.warning(f"ATR calculation failed: {e}")
+        return 0.0
+
+
+def calculate_market_volatility(df: pd.DataFrame) -> str:
+    """
+    Classify market volatility based on price standard deviation
+    Returns: LOW, NORMAL, HIGH, EXTREME
+    """
+    if len(df) < 20:
+        return "UNKNOWN"
+    
+    try:
+        returns = df['close'].pct_change().tail(20)
+        std_dev = returns.std() * 100  # Convert to percentage
+        
+        if std_dev < 1.0:
+            return "LOW"
+        elif std_dev < 2.0:
+            return "NORMAL"
+        elif std_dev < 3.5:
+            return "HIGH"
+        else:
+            return "EXTREME"
+    
+    except Exception as e:
+        logger.warning(f"Volatility calculation failed: {e}")
+        return "UNKNOWN"
 
 
 # ============================================================================
@@ -658,6 +790,126 @@ class TradingDB:
 
 
 # ============================================================================
+# GOOGLE SHEETS REPORTER (Weekend 1+2)
+# ============================================================================
+class GoogleSheetsReporter:
+    """
+    Syncs trading data to Google Sheets dashboard
+    Requires: gspread, oauth2client
+    Setup: Create service account JSON in Railway secrets
+    """
+    
+    def __init__(self, sheet_name: str = "Trading Bot Dashboard"):
+        self.enabled = GSHEETS_AVAILABLE
+        self.sheet_name = sheet_name
+        self.client = None
+        self.sheet = None
+        
+        if not self.enabled:
+            logger.info("Google Sheets: DISABLED (missing libraries)")
+            return
+        
+        # Try to authenticate
+        try:
+            # Check for service account JSON in environment
+            creds_json = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+            
+            if not creds_json:
+                logger.warning("Google Sheets: No credentials found (set GOOGLE_SHEETS_CREDENTIALS)")
+                self.enabled = False
+                return
+            
+            # Parse JSON credentials
+            import json
+            creds_dict = json.loads(creds_json)
+            
+            # Authenticate
+            scope = [
+                'https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive'
+            ]
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            self.client = gspread.authorize(creds)
+            
+            # Open or create sheet
+            try:
+                self.sheet = self.client.open(sheet_name).sheet1
+                logger.info(f"Google Sheets: Connected to '{sheet_name}'")
+            except gspread.exceptions.SpreadsheetNotFound:
+                # Create new sheet
+                spreadsheet = self.client.create(sheet_name)
+                spreadsheet.share('', perm_type='anyone', role='reader')  # Public read
+                self.sheet = spreadsheet.sheet1
+                self._init_headers()
+                logger.info(f"Google Sheets: Created new '{sheet_name}'")
+        
+        except Exception as e:
+            logger.error(f"Google Sheets: Auth failed | {e}")
+            self.enabled = False
+    
+    def _init_headers(self):
+        """Initialize spreadsheet headers"""
+        if not self.enabled or not self.sheet:
+            return
+        
+        try:
+            headers = [
+                'Date', 'Time (UTC)', 'Equity', 'Daily P/L', 'Daily P/L %',
+                'Positions', 'Cash', 'Win Rate %', 'Total Trades',
+                'Drawdown %', 'BTC 24h %', 'Risk Level'
+            ]
+            self.sheet.append_row(headers)
+            logger.info("Google Sheets: Headers initialized")
+        
+        except Exception as e:
+            logger.error(f"Google Sheets: Header init failed | {e}")
+    
+    def update_daily_stats(self, data: dict):
+        """
+        Update daily stats row
+        data = {
+            'equity': float,
+            'daily_start': float,
+            'positions': int,
+            'cash': float,
+            'total_trades': int,
+            'winning_trades': int,
+            'drawdown_pct': float,
+            'crypto_data': dict
+        }
+        """
+        if not self.enabled or not self.sheet:
+            return
+        
+        try:
+            now = utc_now()
+            daily_pnl = data['equity'] - data['daily_start']
+            daily_pnl_pct = (daily_pnl / data['daily_start']) * 100 if data['daily_start'] > 0 else 0.0
+            win_rate = (data['winning_trades'] / data['total_trades'] * 100) if data['total_trades'] > 0 else 0.0
+            
+            row = [
+                now.strftime('%Y-%m-%d'),
+                now.strftime('%H:%M:%S'),
+                f"{data['equity']:.2f}",
+                f"{daily_pnl:+.2f}",
+                f"{daily_pnl_pct:+.2f}",
+                data['positions'],
+                f"{data['cash']:.2f}",
+                f"{win_rate:.1f}",
+                data['total_trades'],
+                f"{data['drawdown_pct']:.2f}",
+                f"{data['crypto_data'].get('btc_change_24h', 0):+.2f}",
+                data['crypto_data'].get('risk_level', 'UNKNOWN')
+            ]
+            
+            self.sheet.append_row(row)
+            logger.info(f"Google Sheets: Updated | Equity: ${data['equity']:.2f} | P/L: {daily_pnl_pct:+.2f}%")
+        
+        except Exception as e:
+            logger.error(f"Google Sheets: Update failed | {e}")
+
+
+# ============================================================================
 # BOT
 # ============================================================================
 class UltimateBot:
@@ -674,11 +926,20 @@ class UltimateBot:
         # Sentiment analyzer (if enabled)
         self.sentiment = SentimentAnalyzer() if cfg.sentiment_enabled else None
         
+        # NEW: Google Sheets reporter (Weekend 1+2)
+        self.sheets = GoogleSheetsReporter()
+        
         # State tracking
         self.last_trade: Dict[str, float] = {s: 0.0 for s in cfg.symbols}
         self.entry_price: Dict[str, float] = {}
         self.start_equity: Optional[float] = None
         self.peak_equity: Optional[float] = None
+        
+        # NEW: Weekend 1+2 - Risk tracking
+        self.daily_peak_equity: Optional[float] = None
+        self.daily_start_equity: Optional[float] = None
+        self.symbol_cooldowns: Dict[str, datetime] = {}  # Track cooldown end times
+        self.paused_until: Optional[datetime] = None  # Daily loss limit pause
         
         # Load entry prices from DB
         self._load_entry_prices()
@@ -692,6 +953,119 @@ class UltimateBot:
             if entry:
                 self.entry_price[sym] = entry
                 logger.info(f"Loaded entry price for {sym}: ${entry:.2f}")
+    
+    # NEW: Weekend 1+2 Methods
+    def count_consecutive_losses(self, symbol: str) -> int:
+        """
+        Count consecutive losing trades for a symbol
+        Used for cooldown protection
+        """
+        try:
+            cur = self.db.conn.execute(
+                """SELECT entry_price, price 
+                   FROM signals 
+                   WHERE symbol=? AND action='SELL' AND entry_price IS NOT NULL
+                   ORDER BY ts_utc DESC LIMIT 10""",
+                (symbol,)
+            )
+            
+            consecutive = 0
+            for row in cur:
+                entry, exit_price = row
+                if exit_price and entry and exit_price < entry:
+                    consecutive += 1
+                else:
+                    break
+            
+            return consecutive
+        
+        except Exception as e:
+            logger.warning(f"Count consecutive losses failed: {e}")
+            return 0
+    
+    def calculate_daily_drawdown(self, current_equity: float) -> float:
+        """
+        Calculate drawdown from today's peak
+        Returns percentage drawdown
+        """
+        if self.daily_peak_equity is None:
+            self.daily_peak_equity = current_equity
+        
+        self.daily_peak_equity = max(self.daily_peak_equity, current_equity)
+        
+        if self.daily_peak_equity > 0:
+            dd = ((self.daily_peak_equity - current_equity) / self.daily_peak_equity) * 100
+            return dd
+        
+        return 0.0
+    
+    def check_symbol_cooldown(self, symbol: str) -> bool:
+        """
+        Check if symbol is in cooldown period after consecutive losses
+        Returns True if can trade, False if in cooldown
+        """
+        # Check if symbol has cooldown
+        if symbol in self.symbol_cooldowns:
+            cooldown_end = self.symbol_cooldowns[symbol]
+            if utc_now() < cooldown_end:
+                remaining = (cooldown_end - utc_now()).total_seconds() / 3600
+                logger.info(f"{symbol} in cooldown for {remaining:.1f}h more")
+                return False
+            else:
+                # Cooldown expired, remove it
+                del self.symbol_cooldowns[symbol]
+        
+        # Check consecutive losses
+        consecutive_losses = self.count_consecutive_losses(symbol)
+        
+        # Get cooldown days from config (default 2)
+        cooldown_days = int(os.getenv("CONSECUTIVE_LOSS_COOLDOWN_DAYS", "2"))
+        
+        if consecutive_losses >= 3:
+            # Set cooldown
+            cooldown_end = utc_now() + timedelta(days=cooldown_days)
+            self.symbol_cooldowns[symbol] = cooldown_end
+            logger.warning(f"{symbol}: {consecutive_losses} consecutive losses - COOLDOWN {cooldown_days} days")
+            return False
+        
+        return True
+    
+    def check_daily_loss_limit(self, current_equity: float) -> bool:
+        """
+        Check if daily loss limit exceeded
+        Returns True if can trade, False if paused
+        """
+        # Check if already paused
+        if self.paused_until:
+            if utc_now() < self.paused_until:
+                remaining = (self.paused_until - utc_now()).total_seconds() / 3600
+                logger.warning(f"PAUSED due to daily loss limit for {remaining:.1f}h more")
+                return False
+            else:
+                # Pause expired
+                self.paused_until = None
+        
+        # Calculate daily P/L
+        if self.daily_start_equity is None:
+            self.daily_start_equity = current_equity
+        
+        daily_pnl_pct = ((current_equity - self.daily_start_equity) / self.daily_start_equity) * 100
+        
+        # Get limit from config (default -5%)
+        max_daily_loss = float(os.getenv("MAX_DAILY_LOSS_PCT", "5.0"))
+        
+        if daily_pnl_pct < -max_daily_loss:
+            # Set pause until midnight EST
+            import pytz
+            tz_ny = pytz.timezone('America/New_York')
+            now_ny = datetime.now(tz_ny)
+            midnight = (now_ny + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            self.paused_until = midnight.astimezone(timezone.utc)
+            
+            logger.critical(f"DAILY LOSS LIMIT HIT: {daily_pnl_pct:.2f}% - PAUSED until midnight")
+            return False
+        
+        return True
 
     def fetch_bars(self, sym: str) -> pd.DataFrame:
         try:
@@ -855,6 +1229,34 @@ class UltimateBot:
         ts = utc_now()
         for p in self.trading.get_all_positions():
             self.db.insert_position(ts, p)
+        
+        # NEW: Update Google Sheets (Weekend 1+2) - every run
+        try:
+            if self.sheets.enabled and self.daily_start_equity:
+                crypto_data = get_crypto_sentiment()
+                daily_dd = self.calculate_daily_drawdown(equity)
+                
+                # Count trades and wins from DB
+                cur = self.db.conn.execute(
+                    "SELECT COUNT(*), SUM(CASE WHEN price > entry_price THEN 1 ELSE 0 END) FROM signals WHERE action='SELL' AND DATE(ts_utc)=?",
+                    (utc_now().strftime('%Y-%m-%d'),)
+                )
+                row = cur.fetchone()
+                total_trades = int(row[0]) if row and row[0] else 0
+                winning_trades = int(row[1]) if row and row[1] else 0
+                
+                self.sheets.update_daily_stats({
+                    'equity': equity,
+                    'daily_start': self.daily_start_equity,
+                    'positions': len(positions),
+                    'cash': cash,
+                    'total_trades': total_trades,
+                    'winning_trades': winning_trades,
+                    'drawdown_pct': daily_dd,
+                    'crypto_data': crypto_data
+                })
+        except Exception as e:
+            logger.warning(f"Google Sheets update failed: {e}")
 
     def _process_symbol(self, sym: str, equity: float, cash: float, positions: Dict):
         # Fetch and validate bars
@@ -878,6 +1280,34 @@ class UltimateBot:
         vwap_val = float(rolling_vwap(df, self.cfg.vwap_window).iloc[-1])
         rsi_val = float(rsi(df["close"].astype(float), self.cfg.rsi_len).iloc[-1])
         logger.info(f"{sym} | Price: ${price:.2f} | VWAP: ${vwap_val:.2f} | RSI: {rsi_val:.1f}")
+        
+        # === NEW: MONITORING METRICS (Weekend 1) ===
+        try:
+            # 1. Crypto risk monitor
+            crypto_data = get_crypto_sentiment()
+            logger.info(f"CRYPTO | BTC: {crypto_data['btc_change_24h']:+.2f}% | ETH: {crypto_data['eth_change_24h']:+.2f}% | Risk: {crypto_data['risk_level']}")
+            
+            # 2. ATR (volatility)
+            atr_value = calculate_atr(df, 14)
+            logger.info(f"{sym} | ATR(14): ${atr_value:.2f}")
+            
+            # 3. Market volatility classification
+            volatility = calculate_market_volatility(df)
+            logger.info(f"{sym} | Market Volatility: {volatility}")
+            
+            # 4. Consecutive losses tracking
+            consecutive_losses = self.count_consecutive_losses(sym)
+            if consecutive_losses > 0:
+                logger.info(f"{sym} | Consecutive losses: {consecutive_losses}")
+            
+            # 5. Daily drawdown
+            daily_dd = self.calculate_daily_drawdown(equity)
+            if daily_dd > 0.5:
+                logger.info(f"Daily Drawdown: {daily_dd:.2f}% | Peak: ${self.daily_peak_equity:.2f} | Current: ${equity:.2f}")
+        
+        except Exception as e:
+            logger.warning(f"Monitoring metrics failed: {e}")
+        
         # Position info
         pos = positions.get(sym)
         pos_qty = float(pos.qty) if pos else 0.0
@@ -961,6 +1391,33 @@ class UltimateBot:
         cooled = (time.time() - self.last_trade[sym]) >= self.cfg.cooldown_sec
         can_trade = self.can_trade_today(sym)
         
+        # === NEW: SAFE GUARDS (Weekend 2) ===
+        safe_guards_passed = True
+        
+        # 1. Daily loss limit check
+        if not self.check_daily_loss_limit(equity):
+            safe_guards_passed = False
+            logger.warning(f"SAFE GUARD: Daily loss limit - trading paused")
+        
+        # 2. Symbol cooldown check (consecutive losses)
+        if not self.check_symbol_cooldown(sym):
+            safe_guards_passed = False
+            logger.warning(f"SAFE GUARD: {sym} in cooldown after consecutive losses")
+        
+        # 3. Crypto crash protection
+        crypto_data = get_crypto_sentiment()
+        if crypto_data['should_pause']:
+            safe_guards_passed = False
+            logger.warning(f"SAFE GUARD: Crypto crash detected (BTC {crypto_data['btc_change_24h']:.2f}%) - no new buys")
+        
+        # 4. Max drawdown circuit breaker
+        max_dd_threshold = float(os.getenv("MAX_DRAWDOWN_PCT", "10.0"))
+        if self.peak_equity and equity < self.peak_equity:
+            total_dd = ((self.peak_equity - equity) / self.peak_equity) * 100
+            if total_dd > max_dd_threshold:
+                logger.critical(f"CIRCUIT BREAKER: Max drawdown {total_dd:.2f}% exceeded threshold {max_dd_threshold}%")
+                raise KeyboardInterrupt("Circuit breaker triggered - max drawdown exceeded")
+        
         action = "HOLD"
         reason = "none"
         
@@ -968,7 +1425,7 @@ class UltimateBot:
         
         if pos_qty == 0:
             # No position - look for entry
-            if entry_trigger and cooled and can_trade:
+            if entry_trigger and cooled and can_trade and safe_guards_passed:
                 qty = self.max_qty(equity, price, cash)
                 
                 if qty > 0:
@@ -1122,6 +1579,7 @@ Est. Fees:    ${fees_estimated:.2f}
             logger.error(f"Failed to get account: {e}")
         
         last_eod_date = None
+        daily_equity_set = False  # NEW: Track if we set today's start
         
         while True:
             try:
@@ -1132,6 +1590,8 @@ Est. Fees:    ${fees_estimated:.2f}
                         if current_date != last_eod_date:
                             self.generate_eod_report()
                             last_eod_date = current_date
+                            # NEW: Reset daily trackers at market close
+                            daily_equity_set = False
                         
                         logger.info("Market closed, sleeping...")
                     else:
@@ -1139,6 +1599,18 @@ Est. Fees:    ${fees_estimated:.2f}
                     
                     time.sleep(300)
                     continue
+                
+                # NEW: Set daily start equity once per day at first run
+                if not daily_equity_set:
+                    try:
+                        acct = self.trading.get_account()
+                        self.daily_start_equity = float(acct.equity)
+                        self.daily_peak_equity = self.daily_start_equity
+                        self.peak_equity = max(self.peak_equity or 0, self.daily_start_equity)
+                        daily_equity_set = True
+                        logger.info(f"NEW: Daily start equity set: ${self.daily_start_equity:.2f}")
+                    except Exception as e:
+                        logger.error(f"Failed to set daily equity: {e}")
                 
                 self.run_once()
                 
